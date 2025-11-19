@@ -24,7 +24,7 @@ spring:
       repositories:
         enabled: false
 
-  r2dbc:
+  datasource:
     cloud-sql-connection-name: logai-472101:us-central1:logai
     database-name: logai
     #    iam-db-user: cloudbuild-custom-runner
