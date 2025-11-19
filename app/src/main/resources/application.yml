@@ -1,0 +1,177 @@
+server:
+  port: ${PORT:8080}
+
+spring:
+  config:
+    import: "sm://"
+
+  main:
+    banner-mode: off
+
+  profiles:
+    active: prod
+
+  cloud:
+    gcp:
+      project-id: logai-472101
+
+  data:
+    redis:
+      host: redis-18238.c84.us-east-1-2.ec2.redns.redis-cloud.com
+      port: 18238
+      password: "${sm://redis-password}"
+      timeout: 10000
+      repositories:
+        enabled: false
+
+  datasource:
+    cloud-sql-connection-name: logai-472101:us-central1:logai
+    database-name: logai
+    #    iam-db-user: cloudbuild-custom-runner
+    iam-db-user: xilongba
+
+
+    pool:
+      enabled: true
+      initial-size: 2              # 启动时创建少量连接，避免占满免费版连接数
+      max-size: 20                 # 最大连接数，按并发量调整（免费版通常够用）
+      # 连接存活与重建策略
+      max-idle-time: 30s           # 空闲超过30秒就回收，防止保留失效连接
+      max-life-time: 5m            # 每5分钟强制重建连接，避免僵尸连接
+      # 借连接超时
+      max-acquire-time: 10s        # 超过10秒还没拿到连接则超时，避免请求挂死
+      # 连接验证
+      validation-query: "SELECT 1" # 借出连接前检查是否可用
+      validation-depth: REMOTE      # 一些驱动支持 REMOTE 检查，确保真的能访问到数据库
+
+  ai:
+    model:
+      chat: google-genai
+    google:
+      genai:
+        project-id: logai-472101
+        #        location: us-central1
+        location: global
+        vertexAi: true
+        chat:
+          options:
+            model: gemini-2.5-flash
+            temperature: 0.7
+            candidate-count: 1
+            response-mime-type: text/plain
+            #thinking-budget: 0
+      #    vertex:
+      #      ai:
+      #        gemini:
+      #          project-id: logai-472101
+      #          location: us-central1
+      #          transport: rest
+      #          chat:
+      #            options:
+      #              model: gemini-2.5-flash
+      #              temperature: 0.7
+      #              candidate-count: 1
+      #              response-mime-type: text/plain
+
+    mcp:
+      server:
+        name: logai-mcp-server
+        protocol: STATELESS
+        type: ASYNC
+        instructions: >
+          This server provides tools for recording personal activities and analyzing behavior patterns over time.
+          The tools should be used when the user mentions actions, habits, tasks, meals, exercises, moods, or any
+          daily-life activities that could be stored as a log entry. If the user describes something that happened
+          (e.g., "I ate fried chicken today", "I swam for an hour", "I slept late last night"), call the logging tool
+          to record it.
+
+          The tools should also be used when the user asks about summaries, trends, or insights such as:
+          "What did I do yesterday?", "Analyze my diet this week", or "How has my exercise changed recently?"
+          In these cases, call the appropriate analysis tools.
+
+          In short:
+          - If the user says they did something → record it.
+          - If the user asks about past behavior or patterns → analyze it.
+          - If there is ambiguity, prefer to use the logging tool first.
+        request-timeout: 1h
+        streamable-http:
+          keep-alive-interval: 30s
+
+    memory:
+      redis:
+        host: redis-18238.c84.us-east-1-2.ec2.redns.redis-cloud.com
+        port: 18238
+        timeout: 5000
+        password: "${sm://redis-password}"
+
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: "${sm://google-oauth-client-id}"
+            client-secret: "${sm://google-oauth-secret}"
+            scope: openid,profile,email
+            redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
+            client-name: Google
+            provider: google
+            authorization-grant-type: authorization_code
+            client-authentication-method: client_secret_basic
+        provider:
+          google:
+            authorization-uri: https://accounts.google.com/o/oauth2/v2/auth
+            token-uri: https://oauth2.googleapis.com/token
+            user-info-uri: https://www.googleapis.com/oauth2/v3/userinfo
+            user-name-attribute: sub
+
+# Token配置 - 统一认证配置
+token:
+  jwt:
+    secret: "${sm://jwt-secret}"  # JWT签名密钥
+    access-token-expiration: 900  # Access Token过期时间（15分钟）
+    refresh-token-expiration: 604800  # Refresh Token过期时间（7天）
+  encryption:
+    key: "${sm://token-encryption-key}"  # Token加密密钥（用于refresh token加密存储）
+  cache:
+    access-token-ttl: 900  # Access Token缓存TTL（15分钟）
+    refresh-token-ttl: 604800  # Refresh Token缓存TTL（7天）
+    user-info-ttl: 1800  # 用户信息缓存TTL（30分钟）
+  max-devices-per-user: 5  # 每个用户最大设备数量
+
+#谷歌安全评估
+assessment:
+  project-id: logai-472101
+  recaptcha-key: "${sm://assessment-recaptcha-key}"
+
+
+
+creem:
+  api-key: "${sm://creem-api-key}"
+  base-url: https://api.creem.io
+  webhook:
+    secret: "${sm://creem-webhook-secret}"
+  search-products-path: /v1/products/search
+  create-checkout-path: /v1/checkouts
+  upgrade-subscription-path: /v1/subscriptions/{id}/upgrade
+  cancel-subscription-path: /v1/subscriptions/{id}/cancel
+
+
+featurebase:
+  secret-key: "${sm://featurebase-secret-key}"
+
+email:
+  smtp:
+    host: smtp.qcloudmail.com
+    port: 465
+    username: no-reply@logai.chat
+    password: "${sm://smtp-password}"
+    from-name: LogAI
+
+logging:
+  level:
+    org.springframework.r2dbc: DEBUG
+    org.springframework.data.r2dbc: DEBUG
+    com.logai: DEBUG
+    com.logai.common.exception: WARN
+    org.springframework.ai: DEBUG
+    org.springframework.ai.chat.client.advisor: debug
