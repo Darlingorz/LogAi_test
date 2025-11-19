@@ -24,13 +24,13 @@ spring:
       repositories:
         enabled: false
 
-  datasource:
+  r2dbc:
     cloud-sql-connection-name: logai-472101:us-central1:logai
     database-name: logai
     #    iam-db-user: cloudbuild-custom-runner
     iam-db-user: xilongba
-
-
+    
+    
     pool:
       enabled: true
       initial-size: 2              # 启动时创建少量连接，避免占满免费版连接数
