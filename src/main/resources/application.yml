@@ -14,6 +14,10 @@ spring:
   cloud:
     gcp:
       project-id: logai-472101
+      sql:
+        database-name: ${DB_NAME:logai}
+        instance-connection-name: ${DB_INSTANCE:logai-472101:us-central1:logai}
+        enableIamAuth: true
 
   data:
     redis:
@@ -29,80 +33,70 @@ spring:
     database-name: logai
     #    iam-db-user: cloudbuild-custom-runner
     iam-db-user: xilongba
-    
-    
-    pool:
-      enabled: true
-      initial-size: 2              # 启动时创建少量连接，避免占满免费版连接数
-      max-size: 20                 # 最大连接数，按并发量调整（免费版通常够用）
-      # 连接存活与重建策略
-      max-idle-time: 30s           # 空闲超过30秒就回收，防止保留失效连接
-      max-life-time: 5m            # 每5分钟强制重建连接，避免僵尸连接
-      # 借连接超时
-      max-acquire-time: 10s        # 超过10秒还没拿到连接则超时，避免请求挂死
-      # 连接验证
-      validation-query: "SELECT 1" # 借出连接前检查是否可用
-      validation-depth: REMOTE      # 一些驱动支持 REMOTE 检查，确保真的能访问到数据库
+    hikari:
+      initialization-fail-timeout: 0
+      auto-commit: true
+      allow-pool-suspension: false
 
-  ai:
-    model:
-      chat: google-genai
-    google:
-      genai:
-        project-id: logai-472101
-        #        location: us-central1
-        location: global
-        vertexAi: true
-        chat:
-          options:
-            model: gemini-2.5-flash
-            temperature: 0.7
-            candidate-count: 1
-            response-mime-type: text/plain
-            #thinking-budget: 0
-      #    vertex:
-      #      ai:
-      #        gemini:
-      #          project-id: logai-472101
-      #          location: us-central1
-      #          transport: rest
-      #          chat:
-      #            options:
-      #              model: gemini-2.5-flash
-      #              temperature: 0.7
-      #              candidate-count: 1
-      #              response-mime-type: text/plain
+  #  ai:
+  #    model:
+  #      chat: google-genai
+  #    google:
+  #      genai:
+  #        project-id: logai-472101
+  #        #        location: us-central1
+  #        location: global
+  #        vertexAi: true
+  #        chat:
+  #          options:
+  #            model: gemini-2.5-flash
+  #            temperature: 0.7
+  #            candidate-count: 1
+  #            response-mime-type: text/plain
+  #            #thinking-budget: 0
+  #      #    vertex:
+  #      #      ai:
+  #      #        gemini:
+  #      #          project-id: logai-472101
+  #      #          location: us-central1
+  #      #          transport: rest
+  #      #          chat:
+  #      #            options:
+  #      #              model: gemini-2.5-flash
+  #      #              temperature: 0.7
+  #      #              candidate-count: 1
+  #      #              response-mime-type: text/plain
+  #
+  #    mcp:
+  #      server:
+  #        name: logai-mcp-server
+  #        protocol: STATELESS
+  #        type: ASYNC
+  #        instructions: >
+  #          This server provides tools for recording personal activities and analyzing behavior patterns over time.
+  #          The tools should be used when the user mentions actions, habits, tasks, meals, exercises, moods, or any
+  #          daily-life activities that could be stored as a log entry. If the user describes something that happened
+  #          (e.g., "I ate fried chicken today", "I swam for an hour", "I slept late last night"), call the logging tool
+  #          to record it.
+  #
+  #          The tools should also be used when the user asks about summaries, trends, or insights such as:
+  #          "What did I do yesterday?", "Analyze my diet this week", or "How has my exercise changed recently?"
+  #          In these cases, call the appropriate analysis tools.
+  #
+  #          In short:
+  #          - If the user says they did something → record it.
+  #          - If the user asks about past behavior or patterns → analyze it.
+  #          - If there is ambiguity, prefer to use the logging tool first.
+  #        request-timeout: 1h
+  #        streamable-http:
+  #          keep-alive-interval: 30s
 
-    mcp:
-      server:
-        name: logai-mcp-server
-        protocol: STATELESS
-        type: ASYNC
-        instructions: >
-          This server provides tools for recording personal activities and analyzing behavior patterns over time.
-          The tools should be used when the user mentions actions, habits, tasks, meals, exercises, moods, or any
-          daily-life activities that could be stored as a log entry. If the user describes something that happened
-          (e.g., "I ate fried chicken today", "I swam for an hour", "I slept late last night"), call the logging tool
-          to record it.
-
-          The tools should also be used when the user asks about summaries, trends, or insights such as:
-          "What did I do yesterday?", "Analyze my diet this week", or "How has my exercise changed recently?"
-          In these cases, call the appropriate analysis tools.
-
-          In short:
-          - If the user says they did something → record it.
-          - If the user asks about past behavior or patterns → analyze it.
-          - If there is ambiguity, prefer to use the logging tool first.
-        request-timeout: 1h
-        streamable-http:
-          keep-alive-interval: 30s
-
-    memory:
-      redis:
-        host: redis-18238.c84.us-east-1-2.ec2.redns.redis-cloud.com
-        port: 18238
-        timeout: 5000
-        password: "${sm://redis-password}"
+  #    memory:
+  #      redis:
+  #        host: redis-18238.c84.us-east-1-2.ec2.redns.redis-cloud.com
+  #        port: 18238
+  #        timeout: 5000
+  #        password: "${sm://redis-password}"
 
   security:
     oauth2:
@@ -146,10 +140,11 @@ assessment:
 
 
 creem:
-  api-key: "${sm://creem-api-key}"
-  base-url: https://api.creem.io
+  api-key: "${sm://creem-api-key-test}"
+  #  base-url: https://api.creem.io
+  base-url: https://test-api.creem.io
   webhook:
-    secret: "${sm://creem-webhook-secret}"
+    secret: "${sm://creem-webhook-secret-test}"
   search-products-path: /v1/products/search
   create-checkout-path: /v1/checkouts
   upgrade-subscription-path: /v1/subscriptions/{id}/upgrade
@@ -169,9 +164,8 @@ email:
 
 logging:
   level:
-    org.springframework.r2dbc: DEBUG
-    org.springframework.data.r2dbc: DEBUG
     com.logai: DEBUG
     com.logai.common.exception: WARN
     org.springframework.ai: DEBUG
     org.springframework.ai.chat.client.advisor: debug
+    org.springframework.security: DEBUG

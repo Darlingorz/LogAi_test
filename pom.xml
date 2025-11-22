@@ -17,14 +17,13 @@
         <jjwt.version>0.11.5</jjwt.version>
         <lombok.version>1.18.24</lombok.version>
         <spring-ai.version>1.1.0</spring-ai.version>
-        <spring-ai-alibaba.version>1.0.0.2</spring-ai-alibaba.version>
         <io-modelcontextprotocol-sdk-version>0.15.0</io-modelcontextprotocol-sdk-version>
     </properties>
 
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.3.13</version>
+        <version>3.3.4</version>
     </parent>
 
     <dependencyManagement>
@@ -33,6 +32,13 @@
                 <groupId>com.google.cloud</groupId>
                 <artifactId>libraries-bom</artifactId>
                 <version>26.68.0</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>com.google.cloud</groupId>
+                <artifactId>spring-cloud-gcp-dependencies</artifactId>
+                <version>5.8.0</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -55,20 +61,12 @@
 
 
     <dependencies>
-        <!--        <dependency>-->
-        <!--            <groupId>io.modelcontextprotocol.sdk</groupId>-->
-        <!--            <artifactId>mcp</artifactId>-->
-        <!--        </dependency>-->
-        <!--        <dependency>-->
-        <!--            <groupId>io.modelcontextprotocol.sdk</groupId>-->
-        <!--            <artifactId>mcp-spring-webflux</artifactId>-->
-        <!--        </dependency>-->
-
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter</artifactId>
         </dependency>
 
+        <!-- AI -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-starter-model-google-genai</artifactId>
@@ -76,7 +74,7 @@
 
         <dependency>
             <groupId>org.springframework.ai</groupId>
-            <artifactId>spring-ai-starter-mcp-server-webflux</artifactId>
+            <artifactId>spring-ai-starter-mcp-server-webmvc</artifactId>
             <exclusions>
                 <exclusion>
                     <groupId>org.springaicommunity</groupId>
@@ -86,14 +84,43 @@
         </dependency>
 
         <dependency>
-            <groupId>com.alibaba.cloud.ai</groupId>
-            <artifactId>spring-ai-alibaba-starter-memory-redis</artifactId>
-            <version>${spring-ai-alibaba.version}</version>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-model-chat-memory-repository-jdbc</artifactId>
         </dependency>
+
+        <dependency>
+            <groupId>org.springaicommunity</groupId>
+            <artifactId>mcp-annotations</artifactId>
+            <version>0.6.0-SNAPSHOT</version>
+        </dependency>
+
+        <!-- Google  -->
+        <dependency>
+            <groupId>com.google.cloud</groupId>
+            <artifactId>google-cloud-vertexai</artifactId>
+            <version>1.4.0</version>
+        </dependency>
+
+        <dependency>
+            <groupId>com.google.cloud</groupId>
+            <artifactId>spring-cloud-gcp-starter-secretmanager</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.google.cloud</groupId>
+            <artifactId>google-cloud-recaptchaenterprise</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.google.cloud.sql</groupId>
+            <artifactId>mysql-socket-factory-connector-j-8</artifactId>
+        </dependency>
+
+
+        <!-- MySQL -->
         <dependency>
             <groupId>com.mysql</groupId>
             <artifactId>mysql-connector-j</artifactId>
         </dependency>
+
         <!-- Redis -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -104,11 +131,12 @@
             <artifactId>jedis</artifactId>
         </dependency>
 
-        <!-- WebFlux -->
+        <!-- WebMVC -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
+
         <!-- JWT Support -->
         <dependency>
             <groupId>io.jsonwebtoken</groupId>
@@ -128,18 +156,13 @@
             <scope>runtime</scope>
         </dependency>
 
-        <!--        R2DBC-->
+        <!-- MyBatis-Plus -->
         <dependency>
             <groupId>com.baomidou</groupId>
             <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
             <version>3.5.7</version>
         </dependency>
 
-        <dependency>
-            <groupId>org.apache.commons</groupId>
-            <artifactId>commons-lang3</artifactId>
-            <version>3.12.0</version>
-        </dependency>
 
         <!-- Lombok -->
         <dependency>
@@ -147,6 +170,13 @@
             <artifactId>lombok</artifactId>
             <version>${lombok.version}</version>
             <scope>provided</scope>
+        </dependency>
+
+        <!-- Apache Commons Lang3 -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-lang3</artifactId>
+            <version>3.12.0</version>
         </dependency>
 
         <!-- FastJSON -->
@@ -167,18 +197,13 @@
             <artifactId>spring-boot-starter-oauth2-client</artifactId>
         </dependency>
 
-        <dependency>
-            <groupId>com.google.cloud</groupId>
-            <artifactId>google-cloud-vertexai</artifactId>
-            <version>1.4.0</version>
-        </dependency>
-
+        <!-- Jackson -->
         <dependency>
             <groupId>com.fasterxml.jackson.datatype</groupId>
             <artifactId>jackson-datatype-jsr310</artifactId>
         </dependency>
 
-
+        <!-- Hutool -->
         <dependency>
             <groupId>cn.hutool</groupId>
             <artifactId>hutool-all</artifactId>
@@ -191,35 +216,11 @@
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
-        <dependency>
-            <groupId>io.projectreactor</groupId>
-            <artifactId>reactor-test</artifactId>
-            <scope>test</scope>
-        </dependency>
 
+        <!-- Jakarta Mail -->
         <dependency>
             <groupId>org.eclipse.angus</groupId>
             <artifactId>jakarta.mail</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>com.google.cloud</groupId>
-            <artifactId>spring-cloud-gcp-starter-secretmanager</artifactId>
-            <version>4.9.0</version>
-        </dependency>
-        <dependency>
-            <groupId>com.google.cloud</groupId>
-            <artifactId>google-cloud-recaptchaenterprise</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.google.cloud.sql</groupId>
-            <artifactId>mysql-socket-factory-connector-j-8</artifactId>
-            <version>1.27.0</version>
-        </dependency>
-        <dependency>
-            <groupId>org.springaicommunity</groupId>
-            <artifactId>mcp-annotations</artifactId>
-            <version>0.6.0-SNAPSHOT</version>
         </dependency>
     </dependencies>
 

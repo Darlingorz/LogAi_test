@@ -1,20 +1,17 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration debug="false">
-    <property name="LOG_PATH" value="./log" />
-    <property name="ARCHIVED_LOG_PATH" value="${LOG_PATH}/archived" />
-    <property name="LOG_PATTERN" value="%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n" />
-    
-    <!-- 确保日志目录存在 -->
-    <statusListener class="ch.qos.logback.core.status.OnConsoleStatusListener" />
+    <property name="LOG_PATH" value="./log"/>
+    <property name="ARCHIVED_LOG_PATH" value="${LOG_PATH}/archived"/>
+    <property name="LOG_PATTERN" value="%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"/>
 
-    <!-- 控制台输出 -->
+    <statusListener class="ch.qos.logback.core.status.OnConsoleStatusListener"/>
+
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
             <pattern>${LOG_PATTERN}</pattern>
         </encoder>
     </appender>
 
-    <!-- info日志文件 - 包含INFO级别 -->
     <appender name="INFO_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
         <file>${LOG_PATH}/logai_info.log</file>
         <filter class="ch.qos.logback.classic.filter.LevelFilter">
@@ -22,21 +19,18 @@
             <onMatch>ACCEPT</onMatch>
             <onMismatch>DENY</onMismatch>
         </filter>
-        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
-            <fileNamePattern>${ARCHIVED_LOG_PATH}/logai_info.%d{yyyy-MM-dd}.log.gz</fileNamePattern>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${ARCHIVED_LOG_PATH}/logai_info.%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
             <maxHistory>30</maxHistory>
             <totalSizeCap>1GB</totalSizeCap>
             <cleanHistoryOnStart>true</cleanHistoryOnStart>
-        </rollingPolicy>
-        <triggeringPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedFNATP">
             <maxFileSize>100MB</maxFileSize>
-        </triggeringPolicy>
+        </rollingPolicy>
         <encoder>
             <pattern>${LOG_PATTERN}</pattern>
         </encoder>
     </appender>
 
-    <!-- error日志文件 - 包含ERROR级别 -->
     <appender name="ERROR_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
         <file>${LOG_PATH}/logai_err.log</file>
         <filter class="ch.qos.logback.classic.filter.LevelFilter">
@@ -44,72 +38,64 @@
             <onMatch>ACCEPT</onMatch>
             <onMismatch>DENY</onMismatch>
         </filter>
-        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
-            <fileNamePattern>${ARCHIVED_LOG_PATH}/logai_err.%d{yyyy-MM-dd}.log.gz</fileNamePattern>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${ARCHIVED_LOG_PATH}/logai_err.%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
             <maxHistory>30</maxHistory>
             <totalSizeCap>1GB</totalSizeCap>
             <cleanHistoryOnStart>true</cleanHistoryOnStart>
-        </rollingPolicy>
-        <triggeringPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedFNATP">
             <maxFileSize>100MB</maxFileSize>
-        </triggeringPolicy>
+        </rollingPolicy>
         <encoder>
             <pattern>${LOG_PATTERN}</pattern>
         </encoder>
     </appender>
 
-    <!-- 所有日志文件 - 包含所有级别 -->
     <appender name="ALL_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
         <file>${LOG_PATH}/logai_all.log</file>
-        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
-            <fileNamePattern>${ARCHIVED_LOG_PATH}/logai_all.%d{yyyy-MM-dd}.log.gz</fileNamePattern>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${ARCHIVED_LOG_PATH}/logai_all.%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
             <maxHistory>30</maxHistory>
             <totalSizeCap>2GB</totalSizeCap>
             <cleanHistoryOnStart>true</cleanHistoryOnStart>
-        </rollingPolicy>
-        <triggeringPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedFNATP">
             <maxFileSize>100MB</maxFileSize>
-        </triggeringPolicy>
+        </rollingPolicy>
         <encoder>
             <pattern>${LOG_PATTERN}</pattern>
         </encoder>
     </appender>
 
-    <!-- 异步日志 -->
     <appender name="ASYNC_INFO" class="ch.qos.logback.classic.AsyncAppender">
-        <appender-ref ref="INFO_FILE" />
+        <appender-ref ref="INFO_FILE"/>
         <queueSize>512</queueSize>
         <discardingThreshold>20</discardingThreshold>
         <includeCallerData>false</includeCallerData>
     </appender>
 
     <appender name="ASYNC_ERROR" class="ch.qos.logback.classic.AsyncAppender">
-        <appender-ref ref="ERROR_FILE" />
+        <appender-ref ref="ERROR_FILE"/>
         <queueSize>512</queueSize>
         <discardingThreshold>20</discardingThreshold>
         <includeCallerData>false</includeCallerData>
     </appender>
 
     <appender name="ASYNC_ALL" class="ch.qos.logback.classic.AsyncAppender">
-        <appender-ref ref="ALL_FILE" />
+        <appender-ref ref="ALL_FILE"/>
         <queueSize>512</queueSize>
         <discardingThreshold>20</discardingThreshold>
         <includeCallerData>false</includeCallerData>
     </appender>
 
-    <!-- 根logger配置 -->
     <root level="INFO">
-        <appender-ref ref="CONSOLE" />
-        <appender-ref ref="ASYNC_INFO" />
-        <appender-ref ref="ASYNC_ERROR" />
-        <appender-ref ref="ASYNC_ALL" />
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="ASYNC_INFO"/>
+        <appender-ref ref="ASYNC_ERROR"/>
+        <appender-ref ref="ASYNC_ALL"/>
     </root>
 
-    <!-- 特定包配置 -->
-    <logger name="com.logai" level="DEBUG" />
-    <logger name="org.springframework.ai" level="DEBUG" />
-    <logger name="org.springframework.r2dbc" level="INFO" />
-    <logger name="org.springframework.data.r2dbc" level="INFO" />
-    <logger name="io.r2dbc" level="WARN" />
-    
+    <logger name="com.logai" level="DEBUG"/>
+    <logger name="org.springframework.ai" level="DEBUG"/>
+    <logger name="org.springframework.r2dbc" level="INFO"/>
+    <logger name="org.springframework.data.r2dbc" level="INFO"/>
+    <logger name="io.r2dbc" level="WARN"/>
+
 </configuration>

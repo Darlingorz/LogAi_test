@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.logai.creem.mapper.MembershipMapper">
+
+    <!-- 把 Membership + 内嵌 Product 一起映射 -->
+    <resultMap id="MembershipWithProduct" type="com.logai.creem.entity.Membership">
+        <!-- Membership 字段 -->
+        <id column="id" property="id"/>
+        <result column="name" property="name"/>
+        <result column="description" property="description"/>
+        <result column="product_id" property="productId"/>
+        <result column="duration_months" property="durationMonths"/>
+        <result column="role_name" property="roleName"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+
+        <!-- 这里映射 Membership.product -->
+        <association property="product" javaType="com.logai.creem.entity.Product">
+            <id column="p_id" property="id"/>
+            <result column="p_product_id" property="productId"/>
+            <result column="p_name" property="name"/>
+            <result column="p_description" property="description"/>
+            <result column="p_price" property="price"/>
+            <result column="p_currency" property="currency"/>
+            <result column="p_billing_type" property="billingType"/>
+            <result column="p_billing_period" property="billingPeriod"/>
+            <result column="p_status" property="status"/>
+            <result column="p_tax_mode" property="taxMode"/>
+            <result column="p_tax_category" property="taxCategory"/>
+            <result column="p_product_url" property="productUrl"/>
+            <result column="p_mode" property="mode"/>
+            <result column="p_default_success_url" property="defaultSuccessUrl"/>
+            <result column="p_image_url" property="imageUrl"/>
+            <result column="p_created_at" property="createdAt"/>
+            <result column="p_updated_at" property="updatedAt"/>
+        </association>
+    </resultMap>
+
+    <!-- 按 product_id 查 Membership + Product（对标你 R2DBC 的 findByProductId） -->
+    <select id="findByProductId" resultMap="MembershipWithProduct">
+        SELECT m.*,
+               p.id                  AS p_id,
+               p.product_id          AS p_product_id,
+               p.name                AS p_name,
+               p.description         AS p_description,
+               p.price               AS p_price,
+               p.currency            AS p_currency,
+               p.billing_type        AS p_billing_type,
+               p.billing_period      AS p_billing_period,
+               p.status              AS p_status,
+               p.tax_mode            AS p_tax_mode,
+               p.tax_category        AS p_tax_category,
+               p.product_url         AS p_product_url,
+               p.mode                AS p_mode,
+               p.default_success_url AS p_default_success_url,
+               p.image_url           AS p_image_url,
+               p.created_at          AS p_created_at,
+               p.updated_at          AS p_updated_at
+
+        FROM memberships m
+                 LEFT JOIN products p ON m.product_id = p.id
+        WHERE m.product_id = #{id} LIMIT 1
+    </select>
+
+</mapper>

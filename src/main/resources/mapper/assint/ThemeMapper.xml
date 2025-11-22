@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.logai.assint.mapper.ThemeMapper">
+
+    <resultMap id="ThemeWithAttributesResultMap" type="com.logai.assint.entity.Theme">
+        <id property="id" column="id"/>
+        <result property="themeName" column="theme_name"/>
+        <result property="description" column="description"/>
+        <result property="userId" column="user_id"/>
+        <result property="isPublic" column="is_public"/>
+        <result property="status" column="status"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+
+        <collection property="attributes"
+                    ofType="com.logai.assint.entity.Attribute"
+                    column="id"
+                    select="com.logai.assint.mapper.AttributeMapper.findByThemeId"/>
+    </resultMap>
+
+    <select id="queryByUserIdOrIsPublic" resultType="com.logai.assint.entity.Theme">
+        SELECT id,
+               user_id,
+               theme_name,
+               description,
+               is_public,
+               status,
+               created_at,
+               updated_at
+        FROM themes
+        WHERE user_id = #{userId}
+           OR is_public = 1
+    </select>
+
+
+    <select id="queryWithRecordCountByUserIdOrIsPublic" resultType="com.logai.assint.dto.ThemeRecordSummaryDto">
+        SELECT t.id                      AS theme_id,
+               t.theme_name,
+               COALESCE(COUNT(ur.id), 0) AS record_count
+        FROM themes t
+                 LEFT JOIN
+             user_record ur ON ur.theme_id = t.id AND ur.user_id = #{userId}
+        WHERE t.user_id = #{userId}
+           OR t.is_public = 1
+        GROUP BY t.id, t.theme_name
+        ORDER BY t.theme_name ASC
+    </select>
+
+
+    <select id="queryByThemeNameAndUserId" resultMap="ThemeWithAttributesResultMap">
+        SELECT id,
+               user_id,
+               theme_name,
+               is_public,
+               CASE WHEN user_id = #{userId} THEN 0 ELSE 1 END AS priority_order
+        FROM themes
+        WHERE (theme_name = #{themeName} AND user_id = #{userId})
+           OR (theme_name = #{themeName} AND is_public = 1)
+        ORDER BY priority_order ASC, id ASC LIMIT 1
+    </select>
+
+</mapper>
