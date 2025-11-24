@@ -5,6 +5,7 @@ import com.logai.assint.dto.RecordDetailDto;
 import com.logai.assint.dto.SaveRecordDetailRequest;
 import com.logai.assint.entity.UserRecord;
 import com.logai.assint.entity.UserRecordDetail;
+import com.logai.assint.jdbc.UserRecordDetailMapperCustom;
 import com.logai.assint.mapper.UserChatMapper;
 import com.logai.assint.mapper.UserRecordDetailMapper;
 import com.logai.assint.mapper.UserRecordMapper;
@@ -45,12 +46,13 @@ public class UserRecordServiceImpl implements UserRecordService {
             DateTimeFormatter.ofPattern("yyyy/MM/dd")
     );
     private final UserRecordDetailMapper userRecordDetailMapper;
+    private final UserRecordDetailMapperCustom userRecordDetailMapperCustom;
     private final UserRecordMapper userRecordMapper;
     private final UserChatMapper userChatMapper;
 
     @Override
     public Map<String, Object> getUserRecordByChatIdAndUserId(String chatId, Long userId, String allAttribute) {
-        List<RecordDetailDto> records = userRecordDetailMapper
+        List<RecordDetailDto> records = userRecordDetailMapperCustom
                 .getUserRecordByChatIdAndUserId(chatId, userId, allAttribute);
 
         String status = userChatMapper.findStatusByChatIdAndUserId(chatId, userId);
@@ -83,12 +85,12 @@ public class UserRecordServiceImpl implements UserRecordService {
             }
         }
 
-        List<RecordDetailDto> records = userRecordDetailMapper
+        List<RecordDetailDto> records = userRecordDetailMapperCustom
                 .searchUserRecords(userId, themeId, trimmedSearch, numericSearchValue,
                         searchDate, searchDateTime, startTime, endTime,
                         allAttribute, page, size);
 
-        Long total = userRecordDetailMapper
+        Long total = userRecordDetailMapperCustom
                 .countUserRecords(userId, themeId, trimmedSearch, numericSearchValue,
                         searchDate, searchDateTime, startTime, endTime);
         Map<String, Object> payload = new HashMap<>();

@@ -1,11 +1,12 @@
 package com.logai.assint.controller;
 
+import com.logai.assint.dto.GlobalAiAssintResponse;
 import com.logai.assint.dto.SaveRecordDetailRequest;
 import com.logai.assint.dto.ThemeRecordSummaryDto;
-import com.logai.assint.entity.ChatInteraction;
 import com.logai.assint.mapper.ThemeMapper;
 import com.logai.assint.service.AssistService;
 import com.logai.assint.service.UserRecordService;
+import com.logai.common.exception.BusinessException;
 import com.logai.common.model.Result;
 import com.logai.common.utils.TimeUtil;
 import com.logai.security.annotation.MemberOnly;
@@ -13,10 +14,8 @@ import com.logai.user.entity.User;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
-import org.springframework.http.MediaType;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
-import reactor.core.publisher.Flux;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -39,29 +38,16 @@ public class AssintController {
      * @return 响应
      */
     @CrossOrigin(origins = "*")
-    @GetMapping(value = "/chat", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @GetMapping(value = "/chat")
     @MemberOnly
-    public Flux<String> chat(@RequestParam String message,
-                             @RequestParam String sessionId,
-                             @RequestParam(required = false) String intentArray,
-                             @AuthenticationPrincipal User user) {
-        // 验证请求参数
-        if (StringUtils.isEmpty(message) || StringUtils.isEmpty(sessionId)) {
-            throw new IllegalArgumentException("Missing required parameters: message and sessionId"); // 缺少必需的参数：message和sessionId
+    public List<GlobalAiAssintResponse> chat(@RequestParam String message,
+                                             @RequestParam(required = false) String intentArray,
+                                             @AuthenticationPrincipal User user) {
+        if (io.micrometer.common.util.StringUtils.isBlank(message)) {
+            // 消息内容不能为空
+            throw BusinessException.validationError("message", "Message content cannot be empty");
         }
-        return assistService.globalChat(user, message, sessionId, intentArray);
-    }
-
-    /**
-     * 获取会话历史记录
-     *
-     * @param sessionId 会话ID
-     * @return 聊天历史记录
-     */
-    @GetMapping("/history/{sessionId}")
-    @MemberOnly
-    public List<ChatInteraction> getChatHistory(@PathVariable String sessionId) {
-        return assistService.getChatHistoryBySessionId(sessionId);
+        return assistService.globalChat(user, message, intentArray);
     }
 
 

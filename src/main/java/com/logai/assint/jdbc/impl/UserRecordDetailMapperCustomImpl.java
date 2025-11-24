@@ -1,9 +1,9 @@
-package com.logai.assint.mapper.custom.impl;
+package com.logai.assint.jdbc.impl;
 
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.TypeReference;
 import com.logai.assint.dto.RecordDetailDto;
-import com.logai.assint.mapper.custom.UserRecordDetailMapperCustom;
+import com.logai.assint.jdbc.UserRecordDetailMapperCustom;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;

@@ -25,14 +25,29 @@ public class UserChat {
     @TableField("original_content")
     private String originalContent;
 
+    @TableField("ai_response")
+    private String aiResponse;
+
     @TableField("session_id")
     private String sessionId;
 
     @TableField("conversation_type")
     private String conversationType;
 
+    @TableField("error_reason")
+    private String errorReason;
+
     @TableField("status")
     private String status;
+
+    @TableField("total_prompt_tokens")
+    private Integer totalPromptTokens;
+
+    @TableField("total_completion_tokens")
+    private Integer totalCompletionTokens;
+
+    @TableField("total_tokens")
+    private Integer totalTokens;
 
     @TableField("record_date")
     private LocalDate recordDate;

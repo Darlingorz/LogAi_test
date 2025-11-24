@@ -38,58 +38,58 @@ spring:
       auto-commit: true
       allow-pool-suspension: false
 
-  #  ai:
-  #    model:
-  #      chat: google-genai
-  #    google:
-  #      genai:
-  #        project-id: logai-472101
-  #        #        location: us-central1
-  #        location: global
-  #        vertexAi: true
-  #        chat:
-  #          options:
-  #            model: gemini-2.5-flash
-  #            temperature: 0.7
-  #            candidate-count: 1
-  #            response-mime-type: text/plain
-  #            #thinking-budget: 0
-  #      #    vertex:
-  #      #      ai:
-  #      #        gemini:
-  #      #          project-id: logai-472101
-  #      #          location: us-central1
-  #      #          transport: rest
-  #      #          chat:
-  #      #            options:
-  #      #              model: gemini-2.5-flash
-  #      #              temperature: 0.7
-  #      #              candidate-count: 1
-  #      #              response-mime-type: text/plain
-  #
-  #    mcp:
-  #      server:
-  #        name: logai-mcp-server
-  #        protocol: STATELESS
-  #        type: ASYNC
-  #        instructions: >
-  #          This server provides tools for recording personal activities and analyzing behavior patterns over time.
-  #          The tools should be used when the user mentions actions, habits, tasks, meals, exercises, moods, or any
-  #          daily-life activities that could be stored as a log entry. If the user describes something that happened
-  #          (e.g., "I ate fried chicken today", "I swam for an hour", "I slept late last night"), call the logging tool
-  #          to record it.
-  #
-  #          The tools should also be used when the user asks about summaries, trends, or insights such as:
-  #          "What did I do yesterday?", "Analyze my diet this week", or "How has my exercise changed recently?"
-  #          In these cases, call the appropriate analysis tools.
-  #
-  #          In short:
-  #          - If the user says they did something → record it.
-  #          - If the user asks about past behavior or patterns → analyze it.
-  #          - If there is ambiguity, prefer to use the logging tool first.
-  #        request-timeout: 1h
-  #        streamable-http:
-  #          keep-alive-interval: 30s
+  ai:
+    model:
+      chat: google-genai
+    google:
+      genai:
+        project-id: logai-472101
+        #        location: us-central1
+        location: global
+        vertexAi: true
+        chat:
+          options:
+            model: gemini-2.5-flash
+            temperature: 0.7
+            candidate-count: 1
+            response-mime-type: text/plain
+            #thinking-budget: 0
+        #    vertex:
+        #      ai:
+        #        gemini:
+        #          project-id: logai-472101
+        #          location: us-central1
+        #          transport: rest
+        #          chat:
+        #            options:
+        #              model: gemini-2.5-flash
+        #              temperature: 0.7
+        #              candidate-count: 1
+        #              response-mime-type: text/plain
+
+    mcp:
+      server:
+        name: logai-mcp-server
+        protocol: STATELESS
+        type: SYNC
+        instructions: >
+          This server provides tools for recording personal activities and analyzing behavior patterns over time.
+          The tools should be used when the user mentions actions, habits, tasks, meals, exercises, moods, or any
+          daily-life activities that could be stored as a log entry. If the user describes something that happened
+          (e.g., "I ate fried chicken today", "I swam for an hour", "I slept late last night"), call the logging tool
+          to record it.
+
+          The tools should also be used when the user asks about summaries, trends, or insights such as:
+          "What did I do yesterday?", "Analyze my diet this week", or "How has my exercise changed recently?"
+          In these cases, call the appropriate analysis tools.
+
+          In short:
+          - If the user says they did something → record it.
+          - If the user asks about past behavior or patterns → analyze it.
+          - If there is ambiguity, prefer to use the logging tool first.
+        request-timeout: 1h
+        streamable-http:
+          keep-alive-interval: 30s
 
   #    memory:
   #      redis:

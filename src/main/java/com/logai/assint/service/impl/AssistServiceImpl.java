@@ -7,12 +7,12 @@ import com.logai.assint.dto.*;
 import com.logai.assint.entity.*;
 import com.logai.assint.enums.DataType;
 import com.logai.assint.enums.IntentType;
+import com.logai.assint.jdbc.UserRecordDetailMapperCustom;
 import com.logai.assint.mapper.*;
 import com.logai.assint.service.AssistService;
 import com.logai.assint.util.AiResponseCleaner;
 import com.logai.assint.util.TokenCounter;
 import com.logai.common.exception.BusinessException;
-import com.logai.common.exception.ReactiveBusinessException;
 import com.logai.common.utils.TimeUtil;
 import com.logai.creem.entity.MembershipFeature;
 import com.logai.creem.mapper.MembershipFeatureMapper;
@@ -21,18 +21,13 @@ import io.micrometer.common.util.StringUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.template.st.StTemplateRenderer;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.core.task.TaskExecutor;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.reactive.TransactionalOperator;
-import reactor.core.publisher.Flux;
-import reactor.core.publisher.Mono;
-import reactor.core.publisher.SignalType;
-import reactor.core.scheduler.Schedulers;
-import reactor.util.retry.Retry;
+import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -49,21 +44,21 @@ public class AssistServiceImpl implements AssistService {
     private static final String STATUS_ERROR = "error";
     private static final DateTimeFormatter EVENT_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
+    @Qualifier("recordIntentTaskExecutor")
+    private final TaskExecutor taskExecutor;
     private final ChatClient intentChatClient;
     private final ChatClient themeChatClient;
     private final ChatClient attributeChatClient;
-    private final ChatClient generalChatClient;
     private final ChatClient analysisChatClient;
     private final ChatClient analysisThemeChatClient;
     private final ChatClient generateDateRangeChatClient;
     private final UserChatMapper userChatMapper;
     private final ThemeMapper themeMapper;
     private final AttributeMapper attributeMapper;
-    private final UserRecordDetailMapper recordAttributeValueMapper;
+    private final UserRecordDetailMapper recordDetailMapper;
+    private final UserRecordDetailMapperCustom userRecordDetailMapperCustom;
     private final UserRecordMapper userRecordMapper;
     private final MembershipFeatureMapper membershipFeatureMapper;
-    private final ChatInteractionMapper chatInteractionMapper;
-    private final TransactionalOperator transactionalOperator;
     private final TimeUtil timeUtil;
 
     /**
@@ -77,189 +72,111 @@ public class AssistServiceImpl implements AssistService {
      * 5. 超时处理
      * 6. SSE流式响应的异常处理
      *
-     * @param user      用户
-     * @param message   用户输入的消息内容
-     * @param sessionId 会话ID
+     * @param user    用户
+     * @param message 用户输入的消息内容
      * @return AI助手的响应内容
      * @throws BusinessException 业务异常
      * @throws TimeoutException  超时异常
      */
     @Override
-    public List<String> globalChat(User user, String message, String sessionId, String intentArray) {
+    public List<GlobalAiAssintResponse> globalChat(User user, String message, String intentArray) {
         // 参数验证 - 直接抛出异常，让全局异常处理器处理
         Long userId = user.getId();
-        if (StringUtils.isBlank(message)) {
-            // 消息内容不能为空
-            throw BusinessException.validationError("message", "Message content cannot be empty");
-        }
-        if (StringUtils.isBlank(sessionId)) {
-            // 会话ID不能为空
-            throw BusinessException.validationError("sessionId", "Session ID cannot be empty");
-        }
+
         TokenCounter counter = new TokenCounter();
-        long startTime = System.currentTimeMillis();
 
-        log.info("开始处理AI对话请求 - 用户ID: {}, 会话ID: {}, 消息长度: {}", userId, sessionId, message.length());
+        log.info("开始处理AI对话请求 - 用户ID: {}", userId);
 
-        // 主要的处理逻辑 - 异常向上抛出
         // 直接传递响应式业务异常
-        Flux<IntentType> intentFlux;
+        List<IntentType> intents;
         List<IntentType> providedIntents = parseIntentArray(intentArray);
         if (!providedIntents.isEmpty()) {
-            intentFlux = Flux.fromIterable(providedIntents);
+            intents = providedIntents;
             log.debug("使用前端提供的意图类型: {} - 用户ID: {}", providedIntents, userId);
         } else {
-            intentFlux = analyzeIntent(message, counter);
+            intents = analyzeIntent(message, counter);
         }
-
-        return intentFlux
-                .switchIfEmpty(Mono.error(BusinessException.aiServiceError("IntentAnalysis", "Intent analysis failed"))) // 意图分析失败
-                .flatMap(intentType -> {
-                    log.debug("识别到的意图类型: {} - 用户ID: {}", intentType, userId);
-                    return handleIntentByType(user, message, sessionId, intentType, counter);
-
-                })
-                .doOnNext(response -> {
-                    long duration = System.currentTimeMillis() - startTime;
-                    log.debug("AI响应生成成功 - 用户ID: {}, 响应长度: {}, 耗时: {}ms", userId, response.length(), duration);
-                })
-                .doOnError(error -> {
-                    long duration = System.currentTimeMillis() - startTime;
-                    log.error("AI响应生成失败 - 用户ID: {}, 会话ID: {}, 耗时: {}ms, 输入Tokens: {}, 输出Tokens: {}, 总Tokens: {}, 错误类型: {}, 错误: {}",
-                            userId,
-                            sessionId,
-                            duration,
-                            counter.getPromptTokens(),
-                            counter.getCompletionTokens(),
-                            counter.getTotalTokens(),
-                            error.getClass().getSimpleName(),
-                            error.getMessage(),
-                            error);
-                })
-                .timeout(Duration.ofSeconds(180))
-                .onErrorMap(TimeoutException.class, e -> {
-                    log.error("AI对话请求超时 - 用户ID: {}, 会话ID: {}", userId, sessionId);
-                    return BusinessException.timeout("AI conversation", 60000); // AI对话
-                })
-                .onErrorMap(JSONException.class, e -> {
-                    log.error("JSON解析异常 - 用户ID: {}, 错误: {}", userId, e.getMessage(), e);
-                    return BusinessException.withDetail("JSON_PARSE_ERROR", "Data format parsing failed", e.getMessage()); // 数据格式解析失败
-                })
-                .onErrorMap(ReactiveBusinessException.class, ReactiveBusinessException::getCause)
-                .doFinally(signalType -> logAiInteractionSummary(userId, sessionId, startTime, counter, signalType));
-    }
-
-    /**
-     * 根据意图类型处理请求
-     * 异常向上抛出，不内部消化
-     */
-    @Override
-    public Flux<String> handleIntentByType(User user, String message, String sessionId,
-                                           IntentType intentType, TokenCounter counter) {
-        return saveUserInput(user, sessionId, message, intentType.name())
-                // 保存用户输入失败
-                .switchIfEmpty(Mono.error(BusinessException.databaseError("SaveUserInput", "Failed to save user input")))
-                .flatMapMany(parentId -> {
-                    log.debug("用户输入已保存 - 记录ID: {}, 意图: {}", parentId, intentType);
-                    Long userId = user.getId();
-                    return switch (intentType) {
-                        case CHAT -> handleChatIntent(userId, message, sessionId, counter);
-                        case ANALYZE -> handleAnalysisIntent(user, message, sessionId, counter);
-                        case RECORD -> handleRecordIntentAsync(user, message, sessionId, counter);
-                        default -> handleIllegalIntent(userId, sessionId, counter);
-                    };
-                });
-
-    }
-
-    /**
-     * 处理聊天意图
-     * 异常向上抛出，不内部消化
-     */
-    private String handleChatIntent(Long userId, String message, String sessionId,
-                                    TokenCounter counter) {
-        createUserChat(userId, message, sessionId, "chat");
-        String fullResponse = generalChatClient.prompt()
-                .user(message)
-                .advisors(advisorSpec -> advisorSpec.param(ChatMemory.CONVERSATION_ID, sessionId))
-                .call()
-                .content();
-        saveAiResponse(userId, sessionId, fullResponse, IntentType.CHAT.name(), counter);
-        return fullResponse;
+        if (intents.isEmpty()) {
+            throw BusinessException.aiServiceError("IntentAnalysis", "Intent analysis failed");
+        }
+        List<GlobalAiAssintResponse> result = new ArrayList<>();
+        for (IntentType intentType : intents) {
+            log.debug("识别到的意图类型: {} - 用户ID: {}", intentType, userId);
+            GlobalAiAssintResponse res;
+            switch (intentType) {
+                case ANALYZE -> res = handleAnalysisIntent(user, message, counter);
+                case RECORD -> res = handleRecordIntent(user, message, counter);
+                default -> res = handleIllegalIntent(userId, message, counter);
+            }
+            result.add(res);
+        }
+        return result;
     }
 
     /**
      * 处理分析意图
      * 异常向上抛出，不内部消化
      */
-    private String handleAnalysisIntent(User user, String message, String sessionId,
-                                        TokenCounter counter) {
+    @Override
+    public GlobalAiAssintResponse handleAnalysisIntent(User user, String message, TokenCounter counter) {
         Long userId = user.getId();
-        enforceUsageLimit(user, "text_analysis", "analysis");
-        List<AnalysisResponse> analysisResponses = processAnalysisIntent(user, message, sessionId, counter);
+        UserChat chat = createUserChat(userId, message, IntentType.ANALYZE.getValue(), STATUS_PROCESSING);
+        Long chatId = chat.getId();
+        enforceUsageLimit(user, "text_analysis", IntentType.ANALYZE.getValue());
+        List<AnalysisResponse> analysisResponses = processAnalysisIntent(user, message, counter);
+        GlobalAiAssintResponse result;
         if (analysisResponses.isEmpty()) {
             String emptyMsg = "根据您的请求，我没有找到可以分析的数据。";
-            GlobalAiAssintResponse emptyDto = new GlobalAiAssintResponse(IntentType.ANALYZE, emptyMsg);
-            String responseJson = JSON.toJSONString(emptyDto);
-            saveAiResponse(userId, sessionId, responseJson, IntentType.ANALYZE.name(), counter);
-            return responseJson;
+            result = new GlobalAiAssintResponse(IntentType.ANALYZE, emptyMsg);
+        } else {
+            result = new GlobalAiAssintResponse(IntentType.ANALYZE, analysisResponses);
         }
-        String response = JSON.toJSONString(new GlobalAiAssintResponse(IntentType.ANALYZE, analysisResponses));
-        saveAiResponse(userId, sessionId, response, IntentType.ANALYZE.name(), counter);
-        return response;
+        String response = JSON.toJSONString(result);
+        updateUserChatStatus(chatId, STATUS_COMPLETED, response, null, counter);
+        return result;
     }
 
-    /**
-     * 处理记录意图
-     * 异常向上抛出，不内部消化
-     */
-    private Flux<String> handleRecordIntentAsync(User user, String message, String sessionId,
-                                                 TokenCounter counter) {
+    @Override
+    public GlobalAiAssintResponse handleRecordIntent(User user, String message, TokenCounter counter) {
         Long userId = user.getId();
+        enforceUsageLimit(user, "text_record", "record");
+        UserChat userChat = createUserChat(userId, message, "record", STATUS_PROCESSING);
+        Long chatId = userChat.getId();
+        taskExecutor.execute(() -> {
+            try {
+                List<ManualRecordResponse> manualResponses = processRecordIntent(user, message, userChat, counter);
 
-        return enforceUsageLimit(user, "text_record", "record")
-                .thenMany(createUserChat(userId, message, sessionId, "record", STATUS_PROCESSING)
-                        .flatMapMany(userChat -> {
-                            Mono<List<ManualRecordResponse>> recordProcessing = processRecordIntent(user, message, userChat, counter)
-                                    .collectList()
-                                    .retryWhen(Retry.backoff(3, Duration.ofSeconds(2)));
+                Object data;
+                if (manualResponses == null || manualResponses.isEmpty()) {
+                    data = "我没有从您的话中识别出可以记录的内容。";
+                } else {
+                    data = manualResponses;
+                }
 
-                            Mono<Void> asyncTask = recordProcessing
-                                    .flatMap(manualResponses -> {
-                                        Object data;
-                                        if (manualResponses == null || manualResponses.isEmpty()) {
-                                            data = "我没有从您的话中识别出可以记录的内容。";
-                                        } else {
-                                            data = manualResponses;
-                                        }
+                String responseJson = JSON.toJSONString(new GlobalAiAssintResponse(IntentType.RECORD, data));
 
-                                        String responseJson = JSON.toJSONString(new GlobalAiAssintResponse(IntentType.RECORD, data));
-                                        return saveAiResponse(userId, sessionId, responseJson, IntentType.RECORD.name(), counter)
-                                                .then(updateUserChatStatus(userChat.getId(), STATUS_COMPLETED))
-                                                .then();
-                                    })
-                                    .onErrorResume(error -> updateUserChatStatus(userChat.getId(), STATUS_ERROR)
-                                            .then(Mono.fromRunnable(() -> log.error("记录意图异步处理失败 - 用户ID: {}, 聊天ID: {}, 错误: {}",
-                                                    userId,
-                                                    userChat.getId(),
-                                                    error.getMessage(),
-                                                    error))))
-                                    .then();
+                updateUserChatStatus(chatId, STATUS_COMPLETED, responseJson, null, counter);
 
-                            asyncTask.subscribeOn(Schedulers.boundedElastic()).subscribe();
-
-                            GlobalAiAssintResponse ackResponse = new GlobalAiAssintResponse(IntentType.RECORD, Map.of("chatId", userChat.getId()));
-                            return Flux.just(JSON.toJSONString(ackResponse));
-                        }));
+            } catch (Exception error) {
+                updateUserChatStatus(chatId, STATUS_ERROR, null, error.getMessage(), counter);
+                log.error("记录意图异步处理失败 - 用户ID: {}, 聊天ID: {}, 错误: {}",
+                        userId,
+                        chatId,
+                        error.getMessage(),
+                        error);
+            }
+        });
+        return new GlobalAiAssintResponse(IntentType.RECORD, Map.of("chatId", userChat.getId()));
     }
+
 
     /**
      * 处理非法意图
      */
-    private String handleIllegalIntent(Long userId, String sessionId, TokenCounter counter) {
+    private GlobalAiAssintResponse handleIllegalIntent(Long userId, String message, TokenCounter counter) {
         String response = "我不理解你的意思，请重新输入。";
-        saveAiResponse(userId, sessionId, response, IntentType.ILLEGAL.name(), counter)
-        return response;
+        UserChat userChat = createUserChat(userId, message, IntentType.ILLEGAL.getValue(), STATUS_ERROR);
+        return new GlobalAiAssintResponse(IntentType.ILLEGAL, response);
     }
 
     /**
@@ -277,14 +194,13 @@ public class AssistServiceImpl implements AssistService {
             return;
         }
         LocalDate today = timeUtil.getNowInTimezone(user.getTimeZone()).toLocalDate();
-        String actionName = resolveActionName(conversationType);
 
         if (dailyLimit != null && dailyLimit > 0) {
             Long count = userChatMapper.countByUserIdAndConversationTypeAndRecordDate(user.getId(), conversationType, today);
             if (count >= dailyLimit) {
                 throw BusinessException.withDetail(
                         "USAGE_LIMIT_EXCEEDED",
-                        String.format("Today's %s usage has reached the limit", actionName), // 今日%s次数已达上限
+                        String.format("Today's %s usage has reached the limit", conversationType), // 今日%s次数已达上限
                         String.format("membershipId=%d, featureKey=%s, limit=%d, count=%d",
                                 membershipId, featureKey, dailyLimit, count)
                 );
@@ -298,7 +214,7 @@ public class AssistServiceImpl implements AssistService {
             if (count >= monthlyLimit) {
                 throw BusinessException.withDetail(
                         "USAGE_LIMIT_EXCEEDED",
-                        String.format("This month's %s usage has reached the limit", actionName), // 本月%s次数已达上限
+                        String.format("This month's %s usage has reached the limit", conversationType), // 本月%s次数已达上限
                         String.format("membershipId=%d, featureKey=%s, limit=%d, count=%d",
                                 membershipId, featureKey, monthlyLimit, count)
                 );
@@ -306,26 +222,13 @@ public class AssistServiceImpl implements AssistService {
         }
     }
 
-    private String resolveActionName(String conversationType) {
-        return switch (conversationType) {
-            case "record" -> "record"; // 记录
-            case "analysis" -> "analysis"; // 分析
-            default -> "operation"; // 操作
-        };
-    }
-
     /**
      * 创建用户对话记录
      */
-    private UserChat createUserChat(Long userId, String message, String sessionId, String conversationType) {
-        return createUserChat(userId, message, sessionId, conversationType, STATUS_COMPLETED);
-    }
-
-    private UserChat createUserChat(Long userId, String message, String sessionId, String conversationType, String status) {
+    private UserChat createUserChat(Long userId, String message, String conversationType, String status) {
         UserChat userChat = new UserChat();
         userChat.setUserId(userId);
         userChat.setOriginalContent(message);
-        userChat.setSessionId(sessionId);
         userChat.setConversationType(conversationType);
         userChat.setStatus(status);
         userChat.setRecordDate(LocalDate.now());
@@ -335,12 +238,17 @@ public class AssistServiceImpl implements AssistService {
         return userChat;
     }
 
-    private UserChat updateUserChatStatus(Long chatId, String status) {
+    private UserChat updateUserChatStatus(Long chatId, String status, String aiResponse, String errorReason, TokenCounter counter) {
         UserChat userChat = userChatMapper.selectById(chatId);
         if (userChat == null) {
             log.warn("未找到需要更新状态的用户对话记录，chatId={}", chatId);
             return new UserChat();
         }
+        userChat.setAiResponse(aiResponse);
+        userChat.setTotalPromptTokens(counter.getPromptTokens());
+        userChat.setTotalCompletionTokens(counter.getCompletionTokens());
+        userChat.setTotalTokens(counter.getTotalTokens());
+        userChat.setErrorReason(errorReason);
         userChat.setStatus(status);
         userChat.setUpdatedAt(LocalDateTime.now());
         userChatMapper.updateById(userChat);
@@ -477,43 +385,29 @@ public class AssistServiceImpl implements AssistService {
      * f. 保存属性值 (UserRecordDetail)。
      * 若流程中任何一步失败，所有在事务中的数据库操作都会被回滚。
      */
-    public Flux<ManualRecordResponse> processRecordIntent(User user, String message, UserChat originalRecord, TokenCounter counter) {
+    @Transactional
+    public List<ManualRecordResponse> processRecordIntent(User user, String message, UserChat originalRecord, TokenCounter counter) {
+        List<ManualRecordResponse> result = new ArrayList<>();
         Long userId = user.getId();
-        Flux<ManualRecordResponse> transactionalFlow = extractThemesWithSegments(message, user, counter)
-                .flatMap(themeSegment ->
-                        findOrCreateTheme(userId, themeSegment.getTheme())
-                                .flatMapMany(theme -> {
-                                    List<ThemeSegment.PromptItem> promptItems = Optional.ofNullable(themeSegment.getPrompts())
-                                            .orElse(Collections.emptyList());
-
-                                    // 2b. 为主题中的每个语句提取属性
-                                    return Flux.fromIterable(promptItems)
-                                            .filter(promptItem -> promptItem != null && StringUtils.isNotBlank(promptItem.getPrompt()))
-                                            .flatMap(promptItem -> extractAttributesManual(promptItem.getPrompt(), theme, counter)
-                                                    .map(response -> new AbstractMap.SimpleEntry<>(promptItem, response)))
-                                            .filter(entry -> entry.getValue() != null
-                                                    && entry.getValue().getRecords() != null
-                                                    && !entry.getValue().getRecords().isEmpty())
-                                            // 2c. 为每个提取出的记录条目，将其完整地保存到数据库
-                                            .flatMap(entry ->
-                                                    Flux.fromIterable(entry.getValue().getRecords())
-                                                            .flatMap(recordEntry ->
-                                                                    // 为此条目创建主记录
-                                                                    createUserRecord(user, originalRecord.getId(), theme.getId(), entry.getKey().getEventTime())
-                                                                            .flatMapMany(newRecord ->
-                                                                                    // 保存其所有属性值
-                                                                                    saveRecordAttributes(userId, newRecord.getId(), theme.getId(), recordEntry.getAttributes())
-                                                                                            // 保存成功后，组装响应对象
-                                                                                            .then(Mono.just(createManualResponse(theme.getThemeName(), originalRecord.getId(), recordEntry, newRecord.getEventDate())))
-                                                                            )
-                                                            )
-                                            );
-                                })
-                );
-
-        // 步骤 3: 使用 TransactionalOperator 执行整个流程，确保其原子性
-        return transactionalFlow.as(transactionalOperator::transactional)
-                .doOnError(error -> log.error("记录意图的事务处理失败，将进行回滚: {}", error.getMessage()));
+        List<ThemeSegment> themeSegments = extractThemesWithSegments(message, user, counter);
+        for (ThemeSegment themeSegment : themeSegments) {
+            Theme theme = findOrCreateTheme(userId, themeSegment.getTheme());
+            List<ThemeSegment.PromptItem> promptItems = themeSegment
+                    .getPrompts()
+                    .stream()
+                    .filter(promptItem -> promptItem != null && StringUtils.isNotBlank(promptItem.getPrompt()))
+                    .toList();
+            for (ThemeSegment.PromptItem promptItem : promptItems) {
+                ManualRecordResponse manualRecordResponse = extractAttributesManual(promptItem.getPrompt(), theme, counter);
+                for (ManualRecordResponse.ManualRecordEntry record : manualRecordResponse.getRecords()) {
+                    UserRecord userRecord = createUserRecord(user, originalRecord.getId(), theme.getId(), record.getEventTime());
+                    saveRecordAttributes(userId, userRecord.getId(), theme.getId(), record.getAttributes());
+                    ManualRecordResponse manualResponse = createManualResponse(theme.getThemeName(), originalRecord.getId(), record, userRecord.getEventDate());
+                    result.add(manualResponse);
+                }
+            }
+        }
+        return result;
     }
 
     /**
@@ -558,7 +452,7 @@ public class AssistServiceImpl implements AssistService {
         value.setCreatedAt(LocalDateTime.now());
         value.setUpdatedAt(LocalDateTime.now());
         setAttributeValueByType(value, attr.getValue(), DataType.valueOf(attr.getDataType()));
-        recordAttributeValueMapper.insert(value);
+        recordDetailMapper.insert(value);
         return value;
     }
 
@@ -780,19 +674,20 @@ public class AssistServiceImpl implements AssistService {
     /**
      * 处理分析意图
      */
-    public List<AnalysisResponse> processAnalysisIntent(User user, String message, String sessionId, TokenCounter counter) {
+    public List<AnalysisResponse> processAnalysisIntent(User user, String message, TokenCounter counter) {
+        List<AnalysisResponse> result = new ArrayList<>();
         Long userId = user.getId();
-        createUserChat(userId, message, sessionId, "analysis");
         List<String> themes = identifyAnalysisThemes(userId, message, counter);
         if (themes.contains("ALL")) {
             AnalysisRequest analysisRequest = generateQueryTimeSQL(user, message, counter);
-            return executeAnalysisSQL(Collections.singletonList(analysisRequest));
+            result = executeAnalysisSQL(Collections.singletonList(analysisRequest));
         } else {
             for (String theme : themes) {
                 List<AnalysisRequest> analysisRequests = generateAnalysisSQL(user, theme, message, counter);
-                return executeAnalysisSQL(analysisRequests);
+                result.addAll(executeAnalysisSQL(analysisRequests));
             }
         }
+        return result;
     }
 
     /**
@@ -1047,7 +942,7 @@ public class AssistServiceImpl implements AssistService {
     private List<AnalysisResponse> executeAnalysisSQL(List<AnalysisRequest> analysisRequests) {
         List<AnalysisResponse> responses = new ArrayList<>();
         for (AnalysisRequest request : analysisRequests) {
-            List<Map<String, Object>> data = recordAttributeValueMapper.executeCustomQuery(request.getSql());
+            List<Map<String, Object>> data = userRecordDetailMapperCustom.executeCustomQuery(request.getSql());
             AnalysisResponse response = new AnalysisResponse();
             response.setDescription(request.getDescription());
             response.setSchema(request.getSchema());
@@ -1069,76 +964,54 @@ public class AssistServiceImpl implements AssistService {
         }
     }
 
-    private void logAiInteractionSummary(Long userId, String sessionId, long startTime, TokenCounter counter, SignalType signalType) {
-        long duration = System.currentTimeMillis() - startTime;
-        log.info("AI对话请求结束 - 用户ID: {}, 会话ID: {}, 总耗时: {}ms, 输入Tokens: {}, 输出Tokens: {}, 总Tokens: {}, 结束状态: {}",
-                userId,
-                sessionId,
-                duration,
-                counter.getPromptTokens(),
-                counter.getCompletionTokens(),
-                counter.getTotalTokens(),
-                signalType);
-    }
-
-
-    /**
-     * 保存用户输入记录
-     */
-    private Long saveUserInput(User user, String sessionId, String userInput, String intentType) {
-        ChatInteraction interaction = new ChatInteraction();
-        interaction.setUserId(user.getId());
-        interaction.setSessionId(sessionId);
-        interaction.setUserInput(userInput);
-        interaction.setAiResponse(null); // 用户输入时AI响应为空
-        interaction.setIntentType(intentType);
-        interaction.setTotalPromptTokens(0);
-        interaction.setTotalCompletionTokens(0);
-        interaction.setTotalTokens(0);
-        interaction.setCreatedAt(LocalDateTime.now());
-        interaction.setUpdatedAt(LocalDateTime.now());
-        int insert = chatInteractionMapper.insert(interaction);
-        Long id = interaction.getId();
-        if (insert > 0) {
-            log.debug("保存用户输入记录成功: {}", id);
-        } else {
-            log.error("保存用户输入记录失败: {}", id);
-        }
-        return id;
-
-    }
-
-    /**
-     * 保存AI响应记录
-     */
-    private ChatInteraction saveAiResponse(Long userId, String sessionId, String aiResponse, String intentType, TokenCounter
-            counter) {
-        ChatInteraction interaction = new ChatInteraction();
-        interaction.setUserId(userId);
-        interaction.setSessionId(sessionId);
-        interaction.setUserInput(null); // AI响应时用户输入为空
-        interaction.setAiResponse(aiResponse);
-        interaction.setIntentType(intentType);
-        interaction.setTotalPromptTokens(counter.getPromptTokens());
-        interaction.setTotalCompletionTokens(counter.getCompletionTokens());
-        interaction.setTotalTokens(counter.getTotalTokens());
-        interaction.setCreatedAt(LocalDateTime.now());
-        interaction.setUpdatedAt(LocalDateTime.now());
-        int insert = chatInteractionMapper.insert(interaction);
-        if (insert > 0) {
-            log.debug("保存AI响应记录成功: {}", interaction.getId());
-        } else {
-            log.error("保存AI响应记录失败: {}", interaction.getId());
-        }
-        return interaction;
-    }
-
-
-    /**
-     * 根据sessionId查询聊天历史记录
-     */
-    @Override
-    public List<ChatInteraction> getChatHistoryBySessionId(String sessionId) {
-        return chatInteractionMapper.findBySessionIdOrderByCreateTimeAsc(sessionId);
-    }
+//    /**
+//     * 保存用户输入记录
+//     */
+//    private Long saveUserInput(User user, String userInput, String intentType) {
+//        ChatInteraction interaction = new ChatInteraction();
+//        interaction.setUserId(user.getId());
+//        interaction.setSessionId(null);
+//        interaction.setUserInput(userInput);
+//        interaction.setAiResponse(null); // 用户输入时AI响应为空
+//        interaction.setIntentType(intentType);
+//        interaction.setTotalPromptTokens(0);
+//        interaction.setTotalCompletionTokens(0);
+//        interaction.setTotalTokens(0);
+//        interaction.setCreatedAt(LocalDateTime.now());
+//        interaction.setUpdatedAt(LocalDateTime.now());
+//        int insert = chatInteractionMapper.insert(interaction);
+//        Long id = interaction.getId();
+//        if (insert > 0) {
+//            log.debug("保存用户输入记录成功: {}", id);
+//        } else {
+//            log.error("保存用户输入记录失败: {}", id);
+//        }
+//        return id;
+//
+//    }
+//
+//    /**
+//     * 保存AI响应记录
+//     */
+//    private ChatInteraction saveAiResponse(Long userId, String aiResponse, String intentType, TokenCounter
+//            counter) {
+//        ChatInteraction interaction = new ChatInteraction();
+//        interaction.setUserId(userId);
+//        interaction.setSessionId(null);
+//        interaction.setUserInput(null); // AI响应时用户输入为空
+//        interaction.setAiResponse(aiResponse);
+//        interaction.setIntentType(intentType);
+//        interaction.setTotalPromptTokens(counter.getPromptTokens());
+//        interaction.setTotalCompletionTokens(counter.getCompletionTokens());
+//        interaction.setTotalTokens(counter.getTotalTokens());
+//        interaction.setCreatedAt(LocalDateTime.now());
+//        interaction.setUpdatedAt(LocalDateTime.now());
+//        int insert = chatInteractionMapper.insert(interaction);
+//        if (insert > 0) {
+//            log.debug("保存AI响应记录成功: {}", interaction.getId());
+//        } else {
+//            log.error("保存AI响应记录失败: {}", interaction.getId());
+//        }
+//        return interaction;
+//    }
 }

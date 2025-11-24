@@ -1,4 +1,4 @@
-package com.logai.assint.mapper.custom;
+package com.logai.assint.jdbc;
 
 import com.logai.assint.dto.RecordDetailDto;
 

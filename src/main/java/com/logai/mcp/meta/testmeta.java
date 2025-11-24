@@ -1,4 +1,4 @@
-package com.logai.assint.mcp.meta;
+package com.logai.mcp.meta;
 
 import org.springaicommunity.mcp.context.MetaProvider;
 
