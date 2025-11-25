@@ -26,7 +26,7 @@ import org.springframework.ai.template.st.StTemplateRenderer;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -60,6 +60,8 @@ public class AssistServiceImpl implements AssistService {
     private final UserRecordMapper userRecordMapper;
     private final MembershipFeatureMapper membershipFeatureMapper;
     private final TimeUtil timeUtil;
+    private final TransactionTemplate transactionTemplate;
+
 
     /**
      * AI全局对话接口 - 增强版
@@ -120,31 +122,49 @@ public class AssistServiceImpl implements AssistService {
     @Override
     public GlobalAiAssintResponse handleAnalysisIntent(User user, String message, TokenCounter counter) {
         Long userId = user.getId();
+        try {
+            enforceUsageLimit(user, "text_analysis", IntentType.ANALYZE.getValue());
+        } catch (Exception error) {
+            log.error("分析意图处理失败（额度校验） - 用户ID: {}, 错误: {}", userId, error.getMessage(), error);
+            return new GlobalAiAssintResponse(IntentType.ANALYZE, error.getMessage());
+        }
         UserChat chat = createUserChat(userId, message, IntentType.ANALYZE.getValue(), STATUS_PROCESSING);
         Long chatId = chat.getId();
-        enforceUsageLimit(user, "text_analysis", IntentType.ANALYZE.getValue());
-        List<AnalysisResponse> analysisResponses = processAnalysisIntent(user, message, counter);
-        GlobalAiAssintResponse result;
-        if (analysisResponses.isEmpty()) {
-            String emptyMsg = "根据您的请求，我没有找到可以分析的数据。";
-            result = new GlobalAiAssintResponse(IntentType.ANALYZE, emptyMsg);
-        } else {
-            result = new GlobalAiAssintResponse(IntentType.ANALYZE, analysisResponses);
+        try {
+            List<AnalysisResponse> analysisResponses = processAnalysisIntent(user, message, counter);
+            GlobalAiAssintResponse result;
+            if (analysisResponses.isEmpty()) {
+                String emptyMsg = "根据您的请求，我没有找到可以分析的数据。";
+                result = new GlobalAiAssintResponse(IntentType.ANALYZE, emptyMsg);
+            } else {
+                result = new GlobalAiAssintResponse(IntentType.ANALYZE, analysisResponses);
+            }
+            String response = JSON.toJSONString(result);
+            updateUserChatStatus(chatId, STATUS_COMPLETED, response, null, counter);
+            return result;
+        } catch (Exception error) {
+            updateUserChatStatus(chatId, STATUS_ERROR, null, error.getMessage(), counter);
+            log.error("分析意图处理失败 - 用户ID: {}, 聊天ID: {}, 错误: {}", userId, chatId, error.getMessage(), error);
+            return new GlobalAiAssintResponse(IntentType.ANALYZE, error.getMessage());
         }
-        String response = JSON.toJSONString(result);
-        updateUserChatStatus(chatId, STATUS_COMPLETED, response, null, counter);
-        return result;
     }
 
     @Override
     public GlobalAiAssintResponse handleRecordIntent(User user, String message, TokenCounter counter) {
         Long userId = user.getId();
-        enforceUsageLimit(user, "text_record", "record");
-        UserChat userChat = createUserChat(userId, message, "record", STATUS_PROCESSING);
+        try {
+            enforceUsageLimit(user, "text_record", "record");
+        } catch (Exception error) {
+            log.error("记录意图处理失败（额度校验） - 用户ID: {}, 错误: {}", userId, error.getMessage(), error);
+            return new GlobalAiAssintResponse(IntentType.RECORD, error.getMessage());
+        }
+        UserChat userChat = createUserChat(userId, message, IntentType.RECORD.getValue(), STATUS_PROCESSING);
         Long chatId = userChat.getId();
         taskExecutor.execute(() -> {
             try {
-                List<ManualRecordResponse> manualResponses = processRecordIntent(user, message, userChat, counter);
+                List<ManualRecordResponse> manualResponses = transactionTemplate.execute(status ->
+                        processRecordIntent(user, message, userChat, counter)
+                );
 
                 Object data;
                 if (manualResponses == null || manualResponses.isEmpty()) {
@@ -350,6 +370,7 @@ public class AssistServiceImpl implements AssistService {
 
             processTokenUsage(response, counter);
             content = response.getResult().getOutput().getText();
+            log.info("AI返回的意图分析结果: {}", content);
 
             if (StringUtils.isBlank(content)) {
                 throw BusinessException.aiServiceError("IntentAnalysis", "Intent analysis AI returned empty content"); // 意图分析AI返回内容为空
@@ -385,44 +406,50 @@ public class AssistServiceImpl implements AssistService {
      * f. 保存属性值 (UserRecordDetail)。
      * 若流程中任何一步失败，所有在事务中的数据库操作都会被回滚。
      */
-    @Transactional
     public List<ManualRecordResponse> processRecordIntent(User user, String message, UserChat originalRecord, TokenCounter counter) {
         List<ManualRecordResponse> result = new ArrayList<>();
         Long userId = user.getId();
         List<ThemeSegment> themeSegments = extractThemesWithSegments(message, user, counter);
         for (ThemeSegment themeSegment : themeSegments) {
             Theme theme = findOrCreateTheme(userId, themeSegment.getTheme());
-            List<ThemeSegment.PromptItem> promptItems = themeSegment
-                    .getPrompts()
+
+            ManualRecordResponse themeResponse = new ManualRecordResponse();
+            themeResponse.setThemeName(theme.getThemeName());
+            themeResponse.setChatId(originalRecord.getId());
+            themeResponse.setRecords(new ArrayList<>());
+
+            List<ThemeSegment.PromptItem> promptItems = Optional.ofNullable(themeSegment.getPrompts())
+                    .orElse(Collections.emptyList())
                     .stream()
                     .filter(promptItem -> promptItem != null && StringUtils.isNotBlank(promptItem.getPrompt()))
                     .toList();
+
             for (ThemeSegment.PromptItem promptItem : promptItems) {
-                ManualRecordResponse manualRecordResponse = extractAttributesManual(promptItem.getPrompt(), theme, counter);
-                for (ManualRecordResponse.ManualRecordEntry record : manualRecordResponse.getRecords()) {
-                    UserRecord userRecord = createUserRecord(user, originalRecord.getId(), theme.getId(), record.getEventTime());
+                ManualRecordResponse extracted = extractAttributesManual(promptItem.getPrompt(), theme, counter);
+
+                for (ManualRecordResponse.ManualRecordEntry record : extracted.getRecords()) {
+
+                    // 创建记录
+                    UserRecord userRecord = createUserRecord(
+                            user, originalRecord.getId(), theme.getId(), promptItem.getEventTime());
+
                     saveRecordAttributes(userId, userRecord.getId(), theme.getId(), record.getAttributes());
-                    ManualRecordResponse manualResponse = createManualResponse(theme.getThemeName(), originalRecord.getId(), record, userRecord.getEventDate());
-                    result.add(manualResponse);
+
+                    // 添加到最终主题响应
+                    ManualRecordResponse.ManualRecordEntry newEntry = new ManualRecordResponse.ManualRecordEntry();
+                    newEntry.setAttributes(record.getAttributes());
+                    newEntry.setEventTime(EVENT_TIME_FORMATTER.format(userRecord.getEventDate()));
+
+                    themeResponse.getRecords().add(newEntry);
                 }
             }
+
+            // 一个主题一个响应
+            result.add(themeResponse);
         }
         return result;
     }
 
-    /**
-     * 创建手动响应对象
-     */
-    private ManualRecordResponse createManualResponse(String themeName, Long chatId, ManualRecordResponse.ManualRecordEntry record, LocalDateTime eventDate) {
-        ManualRecordResponse response = new ManualRecordResponse();
-        response.setChatId(chatId);
-        response.setThemeName(themeName);
-        if (record != null) {
-            record.setEventTime(eventDate != null ? EVENT_TIME_FORMATTER.format(eventDate) : null);
-        }
-        response.setRecords(List.of(record));
-        return response;
-    }
 
     /**
      * 保存记录的属性值
@@ -529,6 +556,7 @@ public class AssistServiceImpl implements AssistService {
 
             if (response != null) {
                 content = AiResponseCleaner.extractJsonString(response.getResult().getOutput().getText());
+                log.info("AI返回的主题提取结果: {}", content);
                 if (content.trim().isEmpty()) {
                     log.warn("主题提取结果为空，用户消息: {}", message);
                     throw BusinessException.aiServiceError("ThemeExtraction", "Theme extraction AI returned empty content"); // 主题提取AI返回内容为空
@@ -541,8 +569,7 @@ public class AssistServiceImpl implements AssistService {
         }
 
         try {
-            List<ThemeSegment> segments = JSON.parseArray(content, ThemeSegment.class);
-            return segments;
+            return JSON.parseArray(content, ThemeSegment.class);
         } catch (JSONException e) {
             log.error("解析主题JSON失败 - 内容: {}, 错误: {}", content, e.getMessage(), e);
             throw BusinessException.withDetail("JSON_PARSE_ERROR", "Theme data parsing failed",
@@ -590,7 +617,7 @@ public class AssistServiceImpl implements AssistService {
 
             processTokenUsage(response, counter);
             content = AiResponseCleaner.extractJsonString(response.getResult().getOutput().getText());
-
+            log.info("AI返回的属性提取结果: {}", content);
             if (content.trim().isEmpty()) {
                 log.warn("属性提取结果为空，主题: {}", theme.getThemeName());
                 throw BusinessException.aiServiceError("AttributeExtraction", "Attribute extraction AI returned empty content"); // 属性提取AI返回内容为空
@@ -716,7 +743,7 @@ public class AssistServiceImpl implements AssistService {
 
             processTokenUsage(response, counter);
             String content = AiResponseCleaner.extractJsonString(response.getResult().getOutput().getText());
-
+            log.info("AI返回的主题识别结果: {}", content);
             if (StringUtils.isBlank(content)) {
                 log.warn("主题识别结果为空，用户消息: {}", message);
                 return Collections.emptyList();
@@ -828,6 +855,7 @@ public class AssistServiceImpl implements AssistService {
         try {
             // 清理并提取JSON字符串
             String json = AiResponseCleaner.extractJsonString(text);
+            log.info("AI返回的时间范围提取结果: {}", json);
             if (StringUtils.isBlank(json)) {
                 throw new IllegalStateException("AI did not produce a valid JSON time range."); // AI未能生成有效的JSON时间范围。
             }
@@ -912,6 +940,7 @@ public class AssistServiceImpl implements AssistService {
 
             String text = chatResponse.getResult().getOutput().getText();
             String json = AiResponseCleaner.extractJsonString(text);
+            log.info("AI返回的分析SQL结果: {}", json);
             requests = JSON.parseArray(json, AnalysisRequest.class);
         } catch (Exception e) {
             log.error("AI generateAnalysisSQL Exception", e);

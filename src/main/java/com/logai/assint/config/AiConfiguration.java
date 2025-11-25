@@ -4,7 +4,6 @@ import com.logai.assint.tools.DateTimeTools;
 import lombok.RequiredArgsConstructor;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.PromptChatMemoryAdvisor;
-import org.springframework.ai.chat.client.advisor.SimpleLoggerAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.memory.MessageWindowChatMemory;
 import org.springframework.ai.chat.memory.repository.jdbc.JdbcChatMemoryRepository;
@@ -71,7 +70,6 @@ public class AiConfiguration {
                         - "I think I will go for a run later." → `CHAT`
                         - "How do I build a bomb?" → `ILLEGAL`
                         """)
-                .defaultAdvisors(new SimpleLoggerAdvisor())
                 .build();
     }
 
@@ -180,7 +178,6 @@ public class AiConfiguration {
                         ]
                         ```
                         """)
-                .defaultAdvisors(new SimpleLoggerAdvisor())
                 .defaultTools(new DateTimeTools())
                 .build();
     }
@@ -274,7 +271,6 @@ public class AiConfiguration {
                          ```
                         4. **Output JSON only. No explanations.**
                         """)
-                .defaultAdvisors(new SimpleLoggerAdvisor())
                 .build();
     }
 
@@ -318,7 +314,6 @@ public class AiConfiguration {
                         * If input matches nothing:
                          `[]`
                         """)
-                .defaultAdvisors(new SimpleLoggerAdvisor())
                 .build();
     }
 
@@ -535,7 +530,6 @@ public class AiConfiguration {
                         export type AnalysisSchema = AnalysisObject[];
                         ```
                         """)
-                .defaultAdvisors(new SimpleLoggerAdvisor())
                 .build();
     }
 
@@ -588,7 +582,6 @@ public class AiConfiguration {
                         }
                         """)
                 .defaultTools(new DateTimeTools())
-                .defaultAdvisors(new SimpleLoggerAdvisor())
                 .build();
     }
 }

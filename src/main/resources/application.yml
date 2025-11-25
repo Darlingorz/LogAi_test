@@ -31,8 +31,8 @@ spring:
   datasource:
     cloud-sql-connection-name: logai-472101:us-central1:logai
     database-name: logai
-    #    iam-db-user: cloudbuild-custom-runner
-    iam-db-user: xilongba
+    iam-db-user: cloudbuild-custom-runner
+    #    iam-db-user: xilongba
     hikari:
       initialization-fail-timeout: 0
       auto-commit: true
